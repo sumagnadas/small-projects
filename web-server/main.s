@@ -1,4 +1,17 @@
 .intel_syntax noprefix
+.data
+	header: 
+		.asciz "HTTP/1.0 200 OK\r\n\r\n"
+	get_st:  .ascii "GET "
+	post_st:  .asciz "POST"
+.bss
+	filename: .space 100
+	request_data: .space 256
+	file_data: .space 256
+	socket_fd: .space 8
+	conn_fd: .space 8
+	file_fd: .space 8
+.text
 .global _start
 
 exit:
@@ -43,78 +56,117 @@ _start:
 	mov rdi, 2
 	mov rsi, 1
 	mov rdx, 0
-	call socket 
+	call socket
 
 	### Even though stack grows downwards,
 	### data writing and reading is always done
 	### from lower addresses to higher addresses.
 
-	### Data structure as local variables on stack
-	#         [rsp-8]              => socket fd
-	#         [rsp-25] -> [rsp-9]  => sockaddr object
-	# (later) [rsp-26]             => new connection fd
-	# (later) [rsp-47] -> [rsp-27] => response string
-
 	# creating the sockaddr object on stack
 	push rbp
 	mov rbp, rsp
-	sub rbp, 8
-	sub rsp, 25 # 16 for sockaddr + 8 for the initial offset
+	sub rsp, 16 # 16 for sockaddr
 
-	mov byte ptr [rbp], al # store the fd on the stack
+	mov word ptr [socket_fd], ax # store the socket fd
 	# sockaddr object
 	mov word ptr [rbp-16], 0x0002      # sin_family
 	mov word ptr [rbp-14], 0x5000      # sin_port
 	mov dword ptr [rbp-12], 0x00000000 # sin_addr
 
 	# bind the socket
-	mov dil, byte ptr [rbp]  # move the socket fd to rdi
+	mov rdi, qword ptr [socket_fd]  # move the socket fd to rdi
 	lea rsi, [rbp-16]
 	mov rdx, 16
 	call bind
 
 	# listen on the bound port
-	mov dil, byte ptr [rbp]
+	mov rdi, qword ptr [socket_fd]
 	mov rsi, 0
 	call listen
 
 	# accept incoming connections
-	mov dil, byte ptr [rbp]
+	mov rdi, qword ptr [socket_fd]
 	mov rsi, 0
 	mov rdx, 0
 	call accept
 
 	# store the fd for the connection
-	sub rsp, 1
-	mov byte ptr [rbp-17], al
+	mov word ptr [conn_fd], ax
 
 	# read the request
-	mov dil, [rbp-17]
-	lea rsi, [rbp-37-256] # have to read the new request to some valid memory to make it work, cant store it to null
+	mov rdi, qword ptr [conn_fd]
+	lea rsi, [request_data]
 	mov rdx, 256
 	call read
 
-	# send a static response
-	# the string is written backwards to account for endian-ness
-	# also we cant directly write a qword to memory; we have to use an intermediate register.
-	sub rsp, 20 # local var for the string "HTTP/1.0 200 OK\r\n\r\n"
-	mov rax, 0x302e312f50545448
-	mov qword ptr [rbp-37], rax
-	mov rax, 0x0d4b4f2030303220
-	mov qword ptr [rbp-29], rax
-	mov dword ptr [rbp-21], 0x000a0d0a
+	mov eax, dword ptr [get_st] 
+	cmp dword ptr [request_data], eax
+	je GET
 
-	mov dil, byte ptr [rbp-17]
-	lea rsi, [rbp-37]
-	mov rdx, 19
-	call write
+	mov eax, dword ptr [post_st]
+	cmp dword ptr [request_data], eax
+	je POST
+	jmp done
+	
+	GET:
+		# extract the filename from the request
+		mov rdx, 100
+		mov rcx, 0
+		loop:
+			cmp rcx, rdx
+			je endloop
+			cmp byte ptr [request_data+4+rcx], 0x20
+			je endloop
+			mov al, byte ptr [request_data+4+rcx]
+			mov byte ptr [filename+rcx], al
+			inc rcx
+			jmp loop
+		endloop:
+		mov byte ptr [filename+rcx], 0
 
+		# open the file requested
+		lea rdi, [filename]
+		mov rsi, 0
+		call open
+
+		mov word ptr [file_fd], ax # store the fd
+
+		# read the file data
+		mov rdi, qword ptr [file_fd]
+		lea rsi, [file_data]
+		mov rdx, 256
+		call read
+
+		# read the file data size
+		mov rbx, rax
+		call close
+		
+		# send the header
+		mov rdi, qword ptr [conn_fd]
+		lea rsi, header 
+		mov rdx, 19
+		call write
+		
+		# send the file data
+		mov rdi, qword ptr [conn_fd]
+		lea rsi, [file_data]
+		mov rdx, rbx
+		call write
+
+		jmp done
+	POST:
+		mov rdi, rbx
+		lea rsi, header 
+		mov rdx, 19
+		call write
+
+	done:
 	# close the conenction after sending the response
-	mov dil, byte ptr [rbp-17]
-	call close
+		mov rdi, 0
+		mov di, word ptr [conn_fd]
+		call close
 
 	# return the stack to previous point
-	add rbp, 8
 	mov rsp, rbp
 	pop rbp
 
