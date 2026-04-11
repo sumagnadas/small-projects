@@ -8,10 +8,12 @@
 .bss
 	filename: .space 100
 	request_data: .space 256
+	post_off: .space 8
 	file_data: .space 256
 	socket_fd: .space 8
 	conn_fd: .space 8
 	file_fd: .space 8
+	request_size: .space 8
 .text
 .global _start
 
@@ -87,6 +89,8 @@ _start:
 		mov rax, 0
 		syscall
 
+		mov qword ptr [request_size], rax
+
 		mov eax, dword ptr [get_st]
 		cmp dword ptr [request_data], eax
 		je GET
@@ -97,7 +101,7 @@ _start:
 		jmp done
 		
 		GET:
-			# extract the filename from the request
+			# extract the requested path from the request
 			mov rdx, 100
 			mov rcx, 0
 			loop:
@@ -150,7 +154,71 @@ _start:
 
 			jmp done
 		POST:
-			mov rdi, rbx
+			# extract the requested path from the request
+			mov rdx, 100
+			mov rcx, 0
+			loop2:
+				cmp rcx, rdx
+				je endloop2
+				cmp byte ptr [request_data+5+rcx], 0x20
+				je endloop2
+				mov al, byte ptr [request_data+5+rcx]
+				mov byte ptr [filename+rcx], al
+				inc rcx
+				jmp loop2
+			endloop2:
+			mov byte ptr [filename+rcx], 0
+
+			# find the offset for content to write
+			mov rcx, 0
+			loop3:
+				cmp rcx, qword ptr [request_size]
+				je endloop3
+				cmp byte ptr [request_data+rcx], 0x0d
+				jne next3
+				cmp byte ptr [request_data+rcx+1], 0x0a
+				jne next3
+				cmp byte ptr [request_data+rcx+2], 0x0d
+				jne next3
+				cmp byte ptr [request_data+rcx+3], 0x0a
+				jne next3
+				add rcx, 4
+				jmp endloop3
+			next3:
+				inc rcx
+				jmp loop3
+			endloop3:
+
+			# store post data offset
+			mov qword ptr [post_off], rcx
+
+			# open the file requested
+			lea rdi, [filename]
+			mov rsi, 0x41  # set the O_WRONLY(0b1) | O_CREAT flag (0b1000000)
+			mov rdx, 0x1ff # filemodee = 777 (rwx for all)
+			mov rax, 2
+			syscall
+			
+			mov word ptr [file_fd], ax # store the fd
+			
+			# load back post data offset
+			mov rcx, qword ptr [post_off]
+			# write to the fd
+			mov rdi, [file_fd]
+			lea rsi, [request_data+rcx]
+			mov rax, qword ptr [request_size]
+			sub rax, rcx
+			mov rdx, rax
+			mov rax, 1
+			syscall
+
+			# close the fd
+			mov rdi, qword ptr [file_fd]
+			mov rax, 3
+			syscall
+		
+			# send ok response
+			mov rdi, [conn_fd]
 			lea rsi, header
 			mov rdx, 19
 			mov rax, 1
