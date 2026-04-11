@@ -4,6 +4,7 @@
 		.asciz "HTTP/1.0 200 OK\r\n\r\n"
 	get_st:  .ascii "GET "
 	post_st:  .asciz "POST"
+	isforked: .space 1
 .bss
 	filename: .space 100
 	request_data: .space 256
@@ -61,6 +62,23 @@ _start:
 
 		# store the fd for the connection
 		mov word ptr [conn_fd], ax
+
+		# fork the process from here
+		mov rax, 57
+		syscall
+
+		# if this is not a child process, then dont process any reques
+		# i.e. jump to done, else stay and process.
+		# Also, set a flag so as to make sure that the child process
+		# exits instead of trying to accept requests on its own.
+		cmp rax, 0
+		jne done
+		mov byte ptr [isforked], 1
+
+		# close the socket fd so that we dont accidentally touch it
+		mov rdi, qword ptr [socket_fd]
+		mov rax, 3
+		syscall
 
 		# read the request
 		mov rdi, qword ptr [conn_fd]
@@ -138,16 +156,17 @@ _start:
 			mov rax, 1
 			syscall
 		done:
-		# close the conenction after sending the response
-			mov rdi, 0
+			# close the conenction after sending the response or in the parent
 			mov rdi, qword ptr [conn_fd]
 			mov rax, 3
 			syscall
+		cmp byte ptr [isforked], 1
+		je exit
 		jmp mainloop
 	# return the stack to previous point
 	mov rsp, rbp
 	pop rbp
-
+exit:
 	# exit the program
 	mov rdi, 0
 	mov rax, 60
