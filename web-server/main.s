@@ -50,98 +50,100 @@ _start:
 	mov rax, 50
 	syscall
 
-	# accept incoming connections
-	mov rdi, qword ptr [socket_fd]
-	mov rsi, 0
-	mov rdx, 0
-	mov rax, 43
-	syscall
-
-	# store the fd for the connection
-	mov word ptr [conn_fd], ax
-
-	# read the request
-	mov rdi, qword ptr [conn_fd]
-	lea rsi, [request_data]
-	mov rdx, 256
-	mov rax, 0
-	syscall
-
-	mov eax, dword ptr [get_st]
-	cmp dword ptr [request_data], eax
-	je GET
-
-	mov eax, dword ptr [post_st]
-	cmp dword ptr [request_data], eax
-	je POST
-	jmp done
-	
-	GET:
-		# extract the filename from the request
-		mov rdx, 100
-		mov rcx, 0
-		loop:
-			cmp rcx, rdx
-			je endloop
-			cmp byte ptr [request_data+4+rcx], 0x20
-			je endloop
-			mov al, byte ptr [request_data+4+rcx]
-			mov byte ptr [filename+rcx], al
-			inc rcx
-			jmp loop
-		endloop:
-		mov byte ptr [filename+rcx], 0
-
-		# open the file requested
-		lea rdi, [filename]
+	# Accept the connections iteratively
+	mainloop:
+		# accept incoming connections
+		mov rdi, qword ptr [socket_fd]
 		mov rsi, 0
-		mov rax, 2
+		mov rdx, 0
+		mov rax, 43
 		syscall
 
-		mov word ptr [file_fd], ax # store the fd
+		# store the fd for the connection
+		mov word ptr [conn_fd], ax
 
-		# read the file data
-		mov rdi, qword ptr [file_fd]
-		lea rsi, [file_data]
+		# read the request
+		mov rdi, qword ptr [conn_fd]
+		lea rsi, [request_data]
 		mov rdx, 256
 		mov rax, 0
 		syscall
 
-		# read the file data size
-		mov rbx, rax
-		
-		# close the fd
-		mov rax, 3
-		syscall
-		
-		# send the header
-		mov rdi, qword ptr [conn_fd]
-		lea rsi, header
-		mov rdx, 19
-		mov rax, 1
-		syscall
-		
-		# send the file data
-		mov rdi, qword ptr [conn_fd]
-		lea rsi, [file_data]
-		mov rdx, rbx
-		mov rax, 1
-		syscall
+		mov eax, dword ptr [get_st]
+		cmp dword ptr [request_data], eax
+		je GET
 
+		mov eax, dword ptr [post_st]
+		cmp dword ptr [request_data], eax
+		je POST
 		jmp done
-	POST:
-		mov rdi, rbx
-		lea rsi, header
-		mov rdx, 19
-		mov rax, 1
-		syscall
-	done:
-	# close the conenction after sending the response
-		mov rdi, 0
-		mov rdi, qword ptr [conn_fd]
-		mov rax, 3
-		syscall
+		
+		GET:
+			# extract the filename from the request
+			mov rdx, 100
+			mov rcx, 0
+			loop:
+				cmp rcx, rdx
+				je endloop
+				cmp byte ptr [request_data+4+rcx], 0x20
+				je endloop
+				mov al, byte ptr [request_data+4+rcx]
+				mov byte ptr [filename+rcx], al
+				inc rcx
+				jmp loop
+			endloop:
+			mov byte ptr [filename+rcx], 0
 
+			# open the file requested
+			lea rdi, [filename]
+			mov rsi, 0
+			mov rax, 2
+			syscall
+
+			mov word ptr [file_fd], ax # store the fd
+
+			# read the file data
+			mov rdi, qword ptr [file_fd]
+			lea rsi, [file_data]
+			mov rdx, 256
+			mov rax, 0
+			syscall
+
+			# read the file data size
+			mov rbx, rax
+			
+			# close the fd
+			mov rax, 3
+			syscall
+			
+			# send the header
+			mov rdi, qword ptr [conn_fd]
+			lea rsi, header
+			mov rdx, 19
+			mov rax, 1
+			syscall
+			
+			# send the file data
+			mov rdi, qword ptr [conn_fd]
+			lea rsi, [file_data]
+			mov rdx, rbx
+			mov rax, 1
+			syscall
+
+			jmp done
+		POST:
+			mov rdi, rbx
+			lea rsi, header
+			mov rdx, 19
+			mov rax, 1
+			syscall
+		done:
+		# close the conenction after sending the response
+			mov rdi, 0
+			mov rdi, qword ptr [conn_fd]
+			mov rax, 3
+			syscall
+		jmp mainloop
 	# return the stack to previous point
 	mov rsp, rbp
 	pop rbp
