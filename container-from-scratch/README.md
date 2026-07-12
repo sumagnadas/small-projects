@@ -1,18 +1,18 @@
 # Container runtime from scratch
-This folder contains a basic container runtime built from scratch, based on my own studies and Liz Rice's video on [Containers From Scratch](https://www.youtube.com/watch?v=8fi7uSYlOdc). As of now, following basic features are implemented:-
+This folder contains a basic container runtime built from scratch, based on my own studies from various sources (LLMs included) and YouTube videos. Following basic features are implemented:-
 - Isolation of network, process and mountspace view using namespaces
 - Rooted (No user isolation)
-
-Future commits will include :-
 - Rootless (user isolation)
-- Multi container management system based on this runtime
-- Configuration file based container builds
-- Resource limiting using Cgroups
+- Simple multi container management system based on this runtime
+
+Further development as a project is being done at [dockerman](https://github.com/sumagnadas/dockerman) since this has evolved past a "small project".
+
 
 Topics learned or explored while building this project :-
 - Go language
 - Resource isolation and limiting in Linux-based OSes
 - Nuances of privileged vs unprivileged containers on host systems
+- Daemon-based developmenet
 
 ## Running the project
 1. Install dependencies
@@ -38,3 +38,15 @@ sudo sysctl kernel.apparmor_restrict_unprivileged_userns=0 # Ubuntu-specific
 # Do at your own risk
 ./dock run ubuntu -- /bin/bash
 ```
+4. Entering into a container (Requires root)
+```bash
+./dock daemon # requires the backend server running in background
+./dock run --name smth ubuntu -- /bin/bash # Works with both rooted and rootless container
+sudo ./dock exec smth -- /bin/bash
+```
+
+## Some major sources I used for studying
+- [Liz Rice's Container from Scratch](https://www.youtube.com/watch?v=8fi7uSYlOdc)
+- [Red Hat Blog's posts on container](https://www.redhat.com/en/blog/mount-namespaces)
+- [Jerome Petazzoni's talk on containers](https://www.youtube.com/watch?v=sK5i-N34im8)
+- Random strangers on Reddit and Medium whose explanation solidified the foundations more from the above sources.
